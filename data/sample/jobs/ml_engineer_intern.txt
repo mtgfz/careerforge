@@ -1,0 +1,12 @@
+Machine Learning Engineer Intern - Example Analytics (Casablanca)
+
+We are looking for an ML engineering intern to join our forecasting team.
+You will build and deploy time-series forecasting models and expose them through REST APIs.
+
+Requirements:
+- Strong Python skills (pandas, scikit-learn, PyTorch)
+- Knowledge of time series forecasting (ARIMA, LSTM, Prophet)
+- Experience building APIs with FastAPI or Flask
+- Docker and Git
+- Good communication in English and French
+- Kubernetes or MLOps tools such as MLflow is a plus
