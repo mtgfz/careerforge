@@ -1,0 +1,11 @@
+Full-Stack Developer Intern - Example Fintech (Rabat)
+
+Join our product team to build internal and customer-facing web applications.
+
+Requirements:
+- React and a modern JavaScript/TypeScript front end
+- Backend experience with Spring Boot or FastAPI
+- SQL databases and REST API design
+- Docker, Git, CI/CD basics
+- Interest in fintech and payments
+- Teamwork and autonomy; French and English

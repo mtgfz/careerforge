@@ -1,0 +1,10 @@
+Junior Data Analyst - Example Retail Group (Remote)
+
+You will turn business questions into analyses and dashboards.
+
+Requirements:
+- SQL and Python (pandas)
+- Data visualization (Power BI or Tableau)
+- Statistics fundamentals and A/B testing
+- Clear communication of findings to non-technical teams
+- Fluent English
