@@ -1,6 +1,10 @@
 # Secrets
 .env
+.env.*
+!.env.example
 *.key
+*.pem
+.streamlit/secrets.toml
 
 # Python
 __pycache__/
@@ -25,7 +29,18 @@ data/private/
 data/*.pdf
 data/*.docx
 
-# OS / IDE
+# Test, lint and build artifacts
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# OS / IDE / local tooling
 .DS_Store
+Thumbs.db
+desktop.ini
 .idea/
 .vscode/
