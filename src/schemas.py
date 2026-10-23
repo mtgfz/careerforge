@@ -76,6 +76,14 @@ class JudgeOutput(BaseModel):
     """Raw output of the LLM judge (before programmatic checks are added)."""
 
     verdicts: list[BulletVerdict]
+    summary_supported: bool = Field(
+        True, description="True only if every claim of the summary is supported by the evidence"
+    )
+    summary_issue: str = Field("", description="Which summary claim is unsupported, if any")
+    unsupported_titles: list[str] = Field(
+        default_factory=list,
+        description="Entry titles, copied exactly, whose role or project name is not in the evidence",
+    )
     quality_score: int = Field(ge=1, le=10, description="Clarity, impact, action verbs, metrics")
     quality_feedback: str
 
@@ -86,6 +94,10 @@ class Critique(BaseModel):
     quality: float
     overall: float
     unsupported: list[str] = Field(default_factory=list)
+    unsupported_bullets: list[str] = Field(default_factory=list)  # exact bullet texts
+    unsupported_skills: list[str] = Field(default_factory=list)
+    unsupported_titles: list[str] = Field(default_factory=list)
+    summary_supported: bool = True
     missing_keywords: list[str] = Field(default_factory=list)
     feedback: str = ""
     passed: bool = False
