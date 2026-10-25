@@ -1,0 +1,11 @@
+Stagiaire Data Engineer - Exemple Banque (Casablanca)
+
+Au sein de l'équipe Data, vous participerez à la construction de nos pipelines de données
+et à la mise à disposition des données pour les équipes métier.
+
+Profil recherché :
+- Maîtrise de Python et SQL
+- Connaissance d'un outil d'orchestration (Airflow) et de Spark
+- Expérience avec Docker et Git
+- Notions de cloud (AWS ou Azure)
+- Rigueur, esprit d'équipe, bonne communication en français et en anglais
