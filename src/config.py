@@ -65,3 +65,9 @@ MIN_RELEVANCE = 0.15
 HYBRID_SEARCH = os.getenv("HYBRID_SEARCH", "false").lower() in ("1", "true", "yes")
 RERANKER_MODEL = os.getenv("RERANKER_MODEL", "")  # e.g. cross-encoder/mmarco-mMiniLMv2-L12-H384-v1
 RERANK_POOL = int(os.getenv("RERANK_POOL", "12"))
+
+# --- Generation strategy --------------------------------------------------------------------
+# "loop": sequential Writer <-> Critic loop (LangGraph). "best_of_n": N candidates written in parallel
+# at different temperatures, each scored by the Critic, the best one is kept (test-time compute).
+STRATEGY = os.getenv("STRATEGY", "loop").lower()
+BEST_OF_N = int(os.getenv("BEST_OF_N", "3"))

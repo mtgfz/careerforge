@@ -105,3 +105,22 @@ def test_critic_loop_removes_hallucination():
     assert all("50 engineers" not in b.text for e in res.cv.projects for b in e.bullets)
     assert "\\begin{document}" in render_latex(res.cv, Candidate(name="T"))
     assert res.cover_letter and res.questions
+
+
+def test_best_of_n_keeps_the_clean_candidate(monkeypatch):
+    from src import config
+
+    monkeypatch.setattr(config, "STRATEGY", "best_of_n")
+    monkeypatch.setattr(config, "BEST_OF_N", 3)
+    emb = FakeEmbeddings()
+    kb = KnowledgeBase(embeddings=emb)
+    kb.add([load_text("I built internal tools in Python with FastAPI and Docker at an agency.", "cv.md")])
+
+    res = run_pipeline(
+        kb, "ML intern, Python and Docker", Candidate(name="T"),
+        llm=FakeLLM(), embeddings=emb, with_extras=False,
+    )
+
+    assert res.iterations == 3 and len(res.history) == 3
+    assert res.critique.faithfulness == 1.0
+    assert all("50 engineers" not in b.text for e in res.cv.projects for b in e.bullets)
