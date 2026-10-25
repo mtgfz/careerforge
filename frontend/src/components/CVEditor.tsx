@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { downloadUrl, renderEdited } from "../api";
-import type { CV, Candidate, Entry, RenderResponse, RunResult } from "../types";
+import type { Bullet, CV, Candidate, Entry, RenderResponse, RunResult } from "../types";
 
 const TEMPLATE_LABELS: Record<string, string> = {
   classic: "Classique",
@@ -10,7 +10,21 @@ const TEMPLATE_LABELS: Record<string, string> = {
 
 type Section = "experiences" | "projects";
 
-export function CVPaper({ cv, candidate }: { cv: CV; candidate: Candidate }) {
+type Evidence = Record<string, { text: string; source: string }>;
+
+export function CVPaper({
+  cv,
+  candidate,
+  evidence,
+  onPick,
+  picked,
+}: {
+  cv: CV;
+  candidate: Candidate;
+  evidence?: Evidence;
+  onPick?: (b: Bullet) => void;
+  picked?: Bullet | null;
+}) {
   const contact = [candidate.email, candidate.phone, candidate.location, ...candidate.links].filter(Boolean);
   const entries = (title: string, list: Entry[]) =>
     list.length > 0 && (
@@ -24,9 +38,25 @@ export function CVPaper({ cv, candidate }: { cv: CV; candidate: Candidate }) {
               {e.period && <span className="paper-period">{e.period}</span>}
             </p>
             <ul>
-              {e.bullets.map((b, j) => (
-                <li key={j}>{b.text}</li>
-              ))}
+              {e.bullets.map((b, j) => {
+                const proof = evidence && b.source_ids?.some((id) => evidence[id]);
+                return (
+                  <li key={j}>
+                    {proof && onPick ? (
+                      <button
+                        type="button"
+                        className={`bullet-link ${picked === b ? "on" : ""}`}
+                        onClick={() => onPick(b)}
+                        title="Voir la preuve dans vos documents"
+                      >
+                        {b.text}
+                      </button>
+                    ) : (
+                      b.text
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         ))}
@@ -143,8 +173,34 @@ function EntryEditor({
   );
 }
 
+function cvText(cv: CV): string {
+  const entries = [...cv.experiences, ...cv.projects].flatMap((e) => [e.title, e.organization, ...e.bullets.map((b) => b.text)]);
+  return [cv.headline, cv.summary, ...cv.skills, ...entries, ...cv.education].join(" ").toLowerCase();
+}
+
+function Keywords({ keywords, cv }: { keywords: string[]; cv: CV }) {
+  const text = cvText(cv);
+  const covered = keywords.filter((k) => text.includes(k.toLowerCase()));
+  return (
+    <div className="panel">
+      <h3>
+        Mots-clés de l’offre : {covered.length}/{keywords.length} présents dans le CV
+      </h3>
+      <p className="chips">
+        {keywords.map((k) => (
+          <span key={k} className={`chip ${covered.includes(k) ? "kw-yes" : "kw-no"}`}>
+            {k}
+          </span>
+        ))}
+      </p>
+      <p className="hint">Un mot-clé absent n’est ajouté que si vos documents le prouvent.</p>
+    </div>
+  );
+}
+
 export default function CVEditor({ result, templates }: { result: RunResult; templates: string[] }) {
   const [cv, setCv] = useState<CV>(result.cv);
+  const [picked, setPicked] = useState<Bullet | null>(null);
   const [mode, setMode] = useState<"preview" | "edit">("preview");
   const [template, setTemplate] = useState(result.template);
   const [busy, setBusy] = useState(false);
@@ -201,7 +257,29 @@ export default function CVEditor({ result, templates }: { result: RunResult; tem
       {error && <p className="error">{error}</p>}
 
       {mode === "preview" ? (
-        <CVPaper cv={cv} candidate={result.candidate} />
+        <>
+          {result.keywords && result.keywords.length > 0 && <Keywords keywords={result.keywords} cv={cv} />}
+          {result.evidence && <p className="hint">Cliquez sur une ligne soulignée du CV pour voir la preuve dans vos documents.</p>}
+          {picked && result.evidence && (
+            <div className="panel evidence" role="status">
+              <div className="row between">
+                <h3>Preuve</h3>
+                <button className="ghost small" onClick={() => setPicked(null)}>
+                  Fermer
+                </button>
+              </div>
+              {picked.source_ids
+                .filter((id) => result.evidence?.[id])
+                .map((id) => (
+                  <blockquote key={id}>
+                    <p>{result.evidence![id].text}</p>
+                    <cite>{result.evidence![id].source}</cite>
+                  </blockquote>
+                ))}
+            </div>
+          )}
+          <CVPaper cv={cv} candidate={result.candidate} evidence={result.evidence} onPick={setPicked} picked={picked} />
+        </>
       ) : (
         <div className="panel edit">
           <label>

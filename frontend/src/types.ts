@@ -62,6 +62,8 @@ export interface RunResult {
   cover_letter: string;
   questions: string;
   replay?: boolean;
+  keywords?: string[];
+  evidence?: Record<string, { text: string; source: string }>;
 }
 
 export type NodeId =
