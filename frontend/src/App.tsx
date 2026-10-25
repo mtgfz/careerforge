@@ -63,13 +63,12 @@ export default function App() {
           </div>
         </div>
         <div className="top-actions">
-          {config && <span className="badge">{config.llm}</span>}
           {replays.length > 0 && (
             <div className="replay">
               <select value={pick} onChange={(e) => setPick(e.target.value)} aria-label="Exécution enregistrée">
                 {replays.map((r) => (
                   <option key={r.run_id} value={r.run_id}>
-                    {r.run_id === "demo" ? "Démo enregistrée" : r.run_id} · {r.job_title}
+                    {r.job_title || (r.run_id === "demo" ? "Démo enregistrée" : "Exécution enregistrée")}
                   </option>
                 ))}
               </select>
