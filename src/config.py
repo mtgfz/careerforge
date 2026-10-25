@@ -12,6 +12,11 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 # Judge (Critic) model; falls back to the main LLM when left empty.
 JUDGE_PROVIDER = os.getenv("JUDGE_PROVIDER", "").lower()
 JUDGE_MODEL = os.getenv("JUDGE_MODEL", "")
+# Per-request timeout (seconds) and SDK retries for every chat model. Several models can be
+# listed in LLM_MODEL (comma-separated, in order): the next one is tried when a model fails.
+LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "60"))
+LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "1"))
+
 # "Light" model for job analysis, cover letter and interview questions (empty = main LLM).
 # Free quotas are per model: moving these calls off the writer model saves its daily quota.
 LIGHT_PROVIDER = os.getenv("LIGHT_PROVIDER", "").lower()
