@@ -152,6 +152,10 @@ def generate_application(
         "iterations": result.iterations,
         "scores": result.critique.model_dump(exclude=_HIDDEN),
         "pruned": result.pruned,
+        "keywords": result.job.keywords,
+        "evidence": {
+            cid: {"text": c.text, "source": c.source} for cid, c in result.evidence.chunks.items()
+        },
         "history": [
             {"iteration": h["iteration"], **h["critique"].model_dump(exclude=_HIDDEN)}
             for h in result.history

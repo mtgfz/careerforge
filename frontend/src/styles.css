@@ -708,3 +708,13 @@ summary {
 .stages p {
   font-size: 14px;
 }
+
+/* evidence per bullet + keyword coverage */
+.bullet-link { all: unset; cursor: pointer; border-bottom: 1px dotted var(--teal, #0B6E70); }
+.bullet-link:hover, .bullet-link.on { background: rgba(11, 110, 112, 0.12); }
+.bullet-link:focus-visible { outline: 2px solid #0B6E70; outline-offset: 2px; }
+.chip.kw-yes { background: #dff1e8; color: #14573a; }
+.chip.kw-no { background: #eceeea; color: #5b6770; }
+.evidence blockquote { margin: 8px 0; padding: 8px 12px; border-left: 3px solid #0B6E70; background: #f3f6f4; }
+.evidence blockquote p { margin: 0 0 4px; white-space: pre-wrap; font-size: 0.9rem; }
+.evidence cite { font-size: 0.8rem; color: #5b6770; }
