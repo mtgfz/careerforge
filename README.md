@@ -80,6 +80,13 @@ Speed knobs (`.env`): `PLATEAU_DELTA` (stop when the score gain is below it), `R
 second judge call), `PARALLEL_EXTRAS` (letter and questions in parallel), `KB_CACHE_SIZE`, `GITHUB_CACHE_SECONDS`.
 Keep `REJUDGE_AFTER_PRUNE=true` for the ablation so the reported scores are re-measured.
 
+### Retrieval quality knobs
+
+Dense retrieval (multilingual MiniLM) picks a pool of candidate passages (`RERANK_POOL`, default 12), which can then be
+re-ordered by `HYBRID_SEARCH=true` (BM25 fused with the dense ranking by reciprocal rank fusion) and/or
+`RERANKER_MODEL=<cross-encoder>` (a Transformer that attends jointly over requirement + passage).
+Both are off by default so the baseline stays comparable; compare with `python -m eval.ablation ... --out eval/<name>`.
+
 ## Evaluation (ablation)
 
 ```bash
