@@ -6,36 +6,86 @@ import re
 import time
 from functools import lru_cache
 
+from langchain_core.runnables.fallbacks import RunnableWithFallbacks
+
 from . import config
 
 log = logging.getLogger(__name__)
 
 
-def get_llm(temperature: float = 0.2, provider: str | None = None, model: str | None = None):
-    p = provider or config.LLM_PROVIDER
-    m = model or config.LLM_MODEL
+_PROVIDERS = {"groq", "openai", "anthropic", "google", "gemini", "ollama"}
+
+
+class ModelChain(RunnableWithFallbacks):
+    """Several chat models tried in order: when one fails (overloaded, unavailable, too slow,
+    quota used up, invalid output) the next one answers. Works with `prompt | chain` and with
+    `chain.with_structured_output(schema)` like a single chat model."""
+
+    def with_structured_output(self, schema, **kwargs):
+        chains = [m.with_structured_output(schema, **kwargs) for m in (self.runnable, *self.fallbacks)]
+        return RunnableWithFallbacks(
+            runnable=chains[0], fallbacks=chains[1:], exceptions_to_handle=(Exception,)
+        )
+
+    @property
+    def model_name(self) -> str:
+        names = [getattr(m, "model_name", None) or getattr(m, "model", "?") for m in (self.runnable, *self.fallbacks)]
+        return " > ".join(map(str, names))
+
+
+def _build_llm(provider: str, model: str, temperature: float):
+    """One chat model. Short timeout and few SDK retries: the chain moves on quickly instead."""
+    p = provider
+    kw = {"timeout": config.LLM_TIMEOUT, "max_retries": config.LLM_MAX_RETRIES}
     if p == "groq":
         from langchain_groq import ChatGroq
 
-        return ChatGroq(model=m, temperature=temperature)
+        return ChatGroq(model=model, temperature=temperature, **kw)
     if p == "openai":
         from langchain_openai import ChatOpenAI
 
-        return ChatOpenAI(model=m, temperature=temperature)
+        return ChatOpenAI(model=model, temperature=temperature, **kw)
     if p == "anthropic":
         from langchain_anthropic import ChatAnthropic
 
-        return ChatAnthropic(model=m, temperature=temperature)
+        return ChatAnthropic(model=model, temperature=temperature, **kw)
     if p in ("google", "gemini"):
         from langchain_google_genai import ChatGoogleGenerativeAI
 
         # The key is read from GOOGLE_API_KEY (loaded from .env by config).
-        return ChatGoogleGenerativeAI(model=m, temperature=temperature)
+        return ChatGoogleGenerativeAI(model=model, temperature=temperature, **kw)
     if p == "ollama":
         from langchain_ollama import ChatOllama
 
-        return ChatOllama(model=m, temperature=temperature, base_url=config.OLLAMA_BASE_URL)
+        return ChatOllama(model=model, temperature=temperature, base_url=config.OLLAMA_BASE_URL)
     raise ValueError(f"Unknown LLM_PROVIDER '{p}' (use groq | openai | anthropic | google | ollama)")
+
+
+def _parse_models(spec: str, default_provider: str) -> list[tuple[str, str]]:
+    """'gemini-3.8-flash, gemini-3.6-flash, groq:openai/gpt-oss-120b' -> [(provider, model), ...]"""
+    out = []
+    for entry in (e.strip() for e in spec.split(",")):
+        if not entry:
+            continue
+        head, sep, rest = entry.partition(":")
+        if sep and head.lower() in _PROVIDERS:  # 'qwen2.5:7b' is a model name, not a provider
+            out.append((head.lower(), rest.strip()))
+        else:
+            out.append((default_provider, entry))
+    return out
+
+
+def get_llm(temperature: float = 0.2, provider: str | None = None, model: str | None = None):
+    """A chat model, or a ModelChain when `model` lists several (comma-separated, in order of
+    preference). An entry may name its own provider: 'google:gemini-3.6-flash'."""
+    p = (provider or config.LLM_PROVIDER).lower()
+    choices = _parse_models(model or config.LLM_MODEL, p)
+    if not choices:
+        raise ValueError("No model configured (LLM_MODEL is empty)")
+    models = [_build_llm(cp, cm, temperature) for cp, cm in choices]
+    if len(models) == 1:
+        return models[0]
+    return ModelChain(runnable=models[0], fallbacks=models[1:], exceptions_to_handle=(Exception,))
 
 
 def _light_choice() -> tuple[str, str]:

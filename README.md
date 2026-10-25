@@ -1,31 +1,31 @@
-# CareerForge
+﻿# CareerForge
 
 **An agentic, fact-grounded CV generator.** Instead of filling a template with a single prompt, CareerForge builds a personal knowledge base from your own material and uses a team of agents to write, critique and fix a CV tailored to each job offer, without inventing experience.
 
 ## Architecture
 
 ```
- CVs / reports / GitHub ──► Ingestion ──► Vector store (Chroma + multilingual embeddings)
-                                                   │
- Job offer ──► Job Analyst ──► Retriever ◄─────────┘
+ CVs / reports / GitHub â”€â”€â–º Ingestion â”€â”€â–º Vector store (Chroma + multilingual embeddings)
+                                                   â”‚
+ Job offer â”€â”€â–º Job Analyst â”€â”€â–º Retriever â—„â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
                  (JobProfile)     (evidence per requirement)
-                                      │
-                                      ▼
-                                   Writer ◄──────────── feedback ──────────┐
-                                      │                                    │
-                                      ▼                                    │
-                                   Critic ── faithfulness / ATS / quality ─┤ (max 3 loops)
-                                      │ passed
-                                      ▼
-                      LaTeX → PDF  +  cover letter  +  interview questions
+                                      â”‚
+                                      â–¼
+                                   Writer â—„â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ feedback â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+                                      â”‚                                    â”‚
+                                      â–¼                                    â”‚
+                                   Critic â”€â”€ faithfulness / ATS / quality â”€â”¤ (max 3 loops)
+                                      â”‚ passed
+                                      â–¼
+                      LaTeX â†’ PDF  +  cover letter  +  interview questions
 ```
 
-Orchestrated with **LangGraph** (conditional loop Writer ↔ Critic), built on **LangChain**.
+Orchestrated with **LangGraph** (conditional loop Writer â†” Critic), built on **LangChain**.
 
 | Agent | Job |
 |---|---|
 | Ingestion | Loads PDF/DOCX/MD/TXT and public GitHub repos, chunks and embeds them |
-| Job Analyst | Offer → structured `JobProfile` (requirements, importance, ATS keywords) via Pydantic structured output |
+| Job Analyst | Offer â†’ structured `JobProfile` (requirements, importance, ATS keywords) via Pydantic structured output |
 | Retriever | RAG: for every requirement, fetches the candidate's strongest evidence chunks |
 | Writer | Writes impact-style bullets using **only** retrieved evidence; every bullet cites evidence IDs |
 | Critic | Scores the CV and sends actionable feedback back to the Writer |
@@ -53,9 +53,39 @@ streamlit run app/streamlit_app.py                     # UI at http://localhost:
 uvicorn src.api.main:app --reload                      # docs at http://localhost:8000/docs
 ```
 
-Docker (includes LaTeX for PDF export): `docker compose up --build`
+Docker (builds the React app, includes LaTeX for PDF export): `docker compose up --build` then open http://localhost:8000
 
 No API key? Use a local model: `LLM_PROVIDER=ollama`, `LLM_MODEL=llama3.1`.
+
+## Web app (React + FastAPI, one process)
+
+The "Job Application Copilot" UI is a React/TypeScript SPA in `frontend/`, served by FastAPI.
+
+```bash
+cd frontend && npm install && npm run build && cd ..   # builds frontend/dist
+uvicorn src.api.main:app                               # app + API on http://localhost:8000
+# dev mode with hot reload: terminal 1 uvicorn src.api.main:app --reload ; terminal 2 cd frontend && npm run dev
+```
+
+Features: live progress (Server-Sent Events), Critic loop chart with rejected claims per iteration, editable CV with
+LaTeX re-export (3 templates), cover letter, interview questions, per-step timings, and **replay of a recorded run
+without any LLM call** (plan B for the demo).
+
+Record a demo: generate once in the app, then `python scripts/save_demo.py <run_id>` and commit `demo/`.
+
+API: `POST /api/jobs`, `GET /api/jobs/{id}/events` (SSE), `POST /api/runs/{run_id}/render`, `GET /api/replays`,
+`POST /api/replay/{run_id}`, `GET /api/config`, `GET /download/{run_id}/{file}`.
+
+Speed knobs (`.env`): `PLATEAU_DELTA` (stop when the score gain is below it), `REJUDGE_AFTER_PRUNE=false` (skip the
+second judge call), `PARALLEL_EXTRAS` (letter and questions in parallel), `KB_CACHE_SIZE`, `GITHUB_CACHE_SECONDS`.
+Keep `REJUDGE_AFTER_PRUNE=true` for the ablation so the reported scores are re-measured.
+
+### Retrieval quality knobs
+
+Dense retrieval (multilingual MiniLM) picks a pool of candidate passages (`RERANK_POOL`, default 12), which can then be
+re-ordered by `HYBRID_SEARCH=true` (BM25 fused with the dense ranking by reciprocal rank fusion) and/or
+`RERANKER_MODEL=<cross-encoder>` (a Transformer that attends jointly over requirement + passage).
+Both are off by default so the baseline stays comparable; compare with `python -m eval.ablation ... --out eval/<name>`.
 
 ## Evaluation
 
@@ -87,10 +117,10 @@ python -m eval.analysis                 # rebuild the report from eval/results.j
 |---|---|
 | `single_pass` | Writer only, no Critic (baseline) |
 | `critic_once` | one Critic pass: unsupported claims are pruned, no rewrite |
-| `full` | full Writer ↔ Critic loop + pruning |
+| `full` | full Writer â†” Critic loop + pruning |
 | `low_recall` | full system with 1 evidence chunk per requirement instead of 2 |
 
-All variants are scored by the same evaluator on the returned CV. Each run is appended to `eval/results.jsonl` as soon as it ends, so a run interrupted by a free-tier quota resumes where it stopped (`--fresh` starts over). The analysis writes `eval/results.md` (mean ± std, paired comparison against the baseline with wins/ties/losses and an exact sign test, per-pair tables, score per Critic iteration), `eval/results.csv`, `eval/results.png` and `eval/trajectory.png`.
+All variants are scored by the same evaluator on the returned CV. Each run is appended to `eval/results.jsonl` as soon as it ends, so a run interrupted by a free-tier quota resumes where it stopped (`--fresh` starts over). The analysis writes `eval/results.md` (mean Â± std, paired comparison against the baseline with wins/ties/losses and an exact sign test, per-pair tables, score per Critic iteration), `eval/results.csv`, `eval/results.png` and `eval/trajectory.png`.
 
 **Results:** _(paste the summary table from `eval/results.md` here after running)_
 

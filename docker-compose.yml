@@ -1,17 +1,9 @@
 services:
-  api:
+  app:
     build: .
     env_file: .env
     ports:
       - "8000:8000"
     volumes:
       - ./outputs:/app/outputs
-
-  ui:
-    build: .
-    env_file: .env
-    command: streamlit run app/streamlit_app.py --server.port 8501 --server.address 0.0.0.0
-    ports:
-      - "8501:8501"
-    volumes:
-      - ./outputs:/app/outputs
+      - ./demo:/app/demo
