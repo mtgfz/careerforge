@@ -1,0 +1,1 @@
+Résultats valides : eval/rejudged (REJUDGE_AFTER_PRUNE=true). Les autres dossiers et fichiers results*.md ont été produits avec REJUDGE_AFTER_PRUNE=false : la fidélité avec Critic y est fixée à 1.0 et n'est pas mesurée.
