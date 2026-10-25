@@ -201,3 +201,23 @@ def test_ablation_forces_the_rejudge_after_pruning(pairs_dir, monkeypatch):
     row = ablation.run_one(pair, "full", kb=None)
     assert seen == [True] and "stop" in row["error"]
     assert config.REJUDGE_AFTER_PRUNE is False  # restored afterwards
+
+
+def test_ablation_stops_at_the_daily_quota_and_runs_repeat_major(pairs_dir, tmp_path, monkeypatch):
+    root, _ = pairs_dir
+    pairs = load_pairs(root)
+    calls = []
+
+    def fake_run_one(pair, variant, kb, rep, **kw):
+        calls.append((pair.id, variant, rep))
+        if len(calls) == 3:
+            return {"pair": pair.id, "variant": variant, "repeat": rep, "error": "QuotaExceeded: daily",
+                    "daily_quota": True}
+        return {"pair": pair.id, "variant": variant, "repeat": rep,
+                **{m: 0.5 for m in ("faithfulness", "ats", "quality", "overall")}}
+
+    monkeypatch.setattr("eval.ablation.run_one", fake_run_one)
+    monkeypatch.setattr("eval.ablation.build_kb", lambda *a, **k: None)
+    run_ablation(pairs, ["single_pass", "full"], repeats=2, out=tmp_path)
+    # repeat 0 of every pair comes before any repeat 1, and the loop stops at the daily quota
+    assert calls == [("01_ml", "single_pass", 0), ("01_ml", "full", 0), ("02_web", "single_pass", 0)]

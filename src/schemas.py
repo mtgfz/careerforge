@@ -61,8 +61,16 @@ class GeneratedCV(BaseModel):
     skills: list[str]
     experiences: list[CVEntry] = Field(default_factory=list)
     projects: list[CVEntry] = Field(default_factory=list)
-    education: list[str] = Field(default_factory=list)
-    languages: list[str] = Field(default_factory=list)
+    education: list[str] = Field(
+        default_factory=list,
+        description="One plain-text string per degree, e.g. 'Engineering degree in Data Science, "
+        "Example School (2022-2027)'. Each item is a string, never an object.",
+    )
+    languages: list[str] = Field(
+        default_factory=list,
+        description="One plain-text string per language with its level, e.g. 'French (fluent)'. "
+        "Each item is a string, never an object.",
+    )
 
 
 # ---------- Critic ----------

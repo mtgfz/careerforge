@@ -81,7 +81,11 @@ def run_one(pair: Pair, variant: str, kb, repeat: int = 0, llm=None, embeddings=
                 embeddings=embeddings,
             )
     except Exception as e:  # keep going: one failed run must not lose the others
+        from src.llm import QuotaExceeded
+
         row.update(error=f"{type(e).__name__}: {e}"[:500], seconds=round(time.perf_counter() - t0, 1))
+        if isinstance(e, QuotaExceeded) and e.daily:
+            row["daily_quota"] = True
         traceback.print_exc()
         return row
 
@@ -144,7 +148,8 @@ def run_ablation(
         path.write_text("".join(ln + "\n" for ln in kept), encoding="utf-8")
     done = _done(path)
 
-    todo = [(p, v, r) for p in pairs for r in range(repeats) for v in variants if (p.id, v, r) not in done]
+    # Repeat-major order: if the quota stops the run, every pair has the same number of repeats.
+    todo = [(p, v, r) for r in range(repeats) for p in pairs for v in variants if (p.id, v, r) not in done]
     print(f"[ablation] {len(pairs)} pairs x {len(variants)} variants x {repeats} repeats: "
           f"{len(todo)} runs to do, {len(done)} already done")
     kbs: dict[str, object] = {}
@@ -156,6 +161,10 @@ def run_ablation(
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
         brief = row.get("error") or "  ".join(f"{m}={row[m]:.2f}" for m in METRICS)
         print(f"[{n}/{len(todo)}] {pair.id} / {variant} / r{rep}: {brief}")
+        if row.get("daily_quota"):
+            print(f"[ablation] daily quota used up: stopping after {n - 1} new runs. "
+                  "Run the same command again later (without --fresh) to resume.")
+            break
     return path
 
 
