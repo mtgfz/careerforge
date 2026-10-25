@@ -80,15 +80,56 @@ Speed knobs (`.env`): `PLATEAU_DELTA` (stop when the score gain is below it), `R
 second judge call), `PARALLEL_EXTRAS` (letter and questions in parallel), `KB_CACHE_SIZE`, `GITHUB_CACHE_SECONDS`.
 Keep `REJUDGE_AFTER_PRUNE=true` for the ablation so the reported scores are re-measured.
 
-## Evaluation (ablation)
+## Evaluation
 
-```bash
-python -m eval.ablation --cv data/sample/sample_cv.md --jobs data/sample/jobs
+### Dataset: 5 real CV / offer pairs
+Real pairs live in `data/private/pairs/` (git-ignored: they contain personal data), one folder per pair:
+
+```
+data/private/pairs/01_ml_intern/
+  cv.pdf            one or more candidate files (pdf, docx, md, txt, tex)
+  job.txt           the offer text, or job.url with its URL (fetched once, cached)
+  candidate.json    optional: {"name": "...", "github": "username"}
 ```
 
-Compares the full system against a single-pass Writer (no Critic) on the sample jobs, scored by the same evaluator. Outputs `eval/results.csv`, `eval/results.md`, `eval/results.png`.
+Without real pairs, every command falls back to `--sample`: the fictional sample CV against the 5 sample offers (one in French).
 
-**Results:** _(paste the table from `eval/results.md` here after running)_
+### Proof run
+```bash
+python scripts/run_proof.py            # full system on every pair
+```
+For each pair, writes the CV (md/tex/pdf), cover letter, interview questions, match report and a full trace (evidence, every Critic pass) to `outputs/proof/<pair>/`, plus a summary table in `outputs/proof/index.md`.
+
+### Ablation
+```bash
+python -m eval.ablation --repeats 2     # add --variants ... low_recall for the retrieval ablation
+python -m eval.analysis                 # rebuild the report from eval/results.jsonl
+```
+
+| Variant | What runs |
+|---|---|
+| `single_pass` | Writer only, no Critic (baseline) |
+| `critic_once` | one Critic pass: unsupported claims are pruned, no rewrite |
+| `full` | full Writer ↔ Critic loop + pruning |
+| `low_recall` | full system with 1 evidence chunk per requirement instead of 2 |
+
+All variants are scored by the same evaluator on the returned CV. Each run is appended to `eval/results.jsonl` as soon as it ends, so a run interrupted by a free-tier quota resumes where it stopped (`--fresh` starts over). The analysis writes `eval/results.md` (mean ± std, paired comparison against the baseline with wins/ties/losses and an exact sign test, per-pair tables, score per Critic iteration), `eval/results.csv`, `eval/results.png` and `eval/trajectory.png`.
+
+**Results:** _(paste the summary table from `eval/results.md` here after running)_
+
+### Match and gap report (`gap_analyst`)
+`src/agents/gap_analyst.py` classifies every requirement of the offer as **matched** (evidence and in the CV), **in profile, not in CV** (evidence the CV left out), **partial** (only related evidence) or **missing** (no evidence). The classification is deterministic (retrieval similarity plus literal checks), and an optional LLM step adds advice for each gap without ever suggesting a skill the candidate lacks. It reports an importance-weighted **profile match** (what the candidate's material supports) and **CV coverage** (what the generated CV shows).
+
+### Job offer import by URL
+`src/ingestion/job_url.py` reads the schema.org `JobPosting` most job boards embed. Otherwise it falls back to the page's main text. Only public http(s) addresses are fetched (redirects are re-checked), with a size cap. Sites that need a login or JavaScript (LinkedIn, for example) are refused with a clear message, so the user pastes the text instead.
+```bash
+python -m src.ingestion.job_url https://example.com/jobs/123 > job.txt
+```
+
+### Evaluation limits
+- The Critic is also the evaluator, so the scores measure agreement with the judge rather than ground truth. Use a separate `JUDGE_MODEL` and spot-check `trace.json` by hand.
+- With 5 pairs the sign test cannot go below p = 0.0625. Read the results as a consistent trend, not as statistical proof.
+- LLM outputs vary between runs: use `--repeats` and report the std.
 
 ## Tests
 
@@ -109,7 +150,8 @@ src/
   render/      LaTeX / Markdown rendering, PDF compilation
   api/         FastAPI backend
 app/           Streamlit UI
-eval/          ablation script
+eval/          dataset loader, ablation runner, analysis
+scripts/       run_proof.py (proof run on the CV/offer pairs)
 data/sample/   fictional, anonymized sample CV and job offers
 tests/
 ```
