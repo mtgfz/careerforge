@@ -32,6 +32,18 @@ MAX_ITERATIONS = int(os.getenv("MAX_ITERATIONS", "3"))
 FAITHFULNESS_MIN = float(os.getenv("FAITHFULNESS_MIN", "0.95"))
 OVERALL_MIN = float(os.getenv("OVERALL_MIN", "0.75"))
 
+# --- Speed knobs -----------------------------------------------------------------------------
+# Stop the Writer<->Critic loop when an extra iteration improves the overall score by less than this.
+PLATEAU_DELTA = float(os.getenv("PLATEAU_DELTA", "0.02"))
+# True (default, used by the ablation): re-judge the CV after pruning. False (web app): skip that
+# extra LLM call; after pruning nothing unsupported is left, so faithfulness is 1.0 by construction.
+REJUDGE_AFTER_PRUNE = os.getenv("REJUDGE_AFTER_PRUNE", "true").lower() in ("1", "true", "yes")
+# Generate the cover letter and the interview questions concurrently.
+PARALLEL_EXTRAS = os.getenv("PARALLEL_EXTRAS", "true").lower() in ("1", "true", "yes")
+# Knowledge bases (embedded documents) kept in memory, and how long GitHub profiles are cached.
+KB_CACHE_SIZE = int(os.getenv("KB_CACHE_SIZE", "8"))
+GITHUB_CACHE_SECONDS = int(os.getenv("GITHUB_CACHE_SECONDS", "600"))
+
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "outputs")
 

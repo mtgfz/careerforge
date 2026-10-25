@@ -53,9 +53,32 @@ streamlit run app/streamlit_app.py                     # UI at http://localhost:
 uvicorn src.api.main:app --reload                      # docs at http://localhost:8000/docs
 ```
 
-Docker (includes LaTeX for PDF export): `docker compose up --build`
+Docker (builds the React app, includes LaTeX for PDF export): `docker compose up --build` then open http://localhost:8000
 
 No API key? Use a local model: `LLM_PROVIDER=ollama`, `LLM_MODEL=llama3.1`.
+
+## Web app (React + FastAPI, one process)
+
+The "Job Application Copilot" UI is a React/TypeScript SPA in `frontend/`, served by FastAPI.
+
+```bash
+cd frontend && npm install && npm run build && cd ..   # builds frontend/dist
+uvicorn src.api.main:app                               # app + API on http://localhost:8000
+# dev mode with hot reload: terminal 1 uvicorn src.api.main:app --reload ; terminal 2 cd frontend && npm run dev
+```
+
+Features: live progress (Server-Sent Events), Critic loop chart with rejected claims per iteration, editable CV with
+LaTeX re-export (3 templates), cover letter, interview questions, per-step timings, and **replay of a recorded run
+without any LLM call** (plan B for the demo).
+
+Record a demo: generate once in the app, then `python scripts/save_demo.py <run_id>` and commit `demo/`.
+
+API: `POST /api/jobs`, `GET /api/jobs/{id}/events` (SSE), `POST /api/runs/{run_id}/render`, `GET /api/replays`,
+`POST /api/replay/{run_id}`, `GET /api/config`, `GET /download/{run_id}/{file}`.
+
+Speed knobs (`.env`): `PLATEAU_DELTA` (stop when the score gain is below it), `REJUDGE_AFTER_PRUNE=false` (skip the
+second judge call), `PARALLEL_EXTRAS` (letter and questions in parallel), `KB_CACHE_SIZE`, `GITHUB_CACHE_SECONDS`.
+Keep `REJUDGE_AFTER_PRUNE=true` for the ablation so the reported scores are re-measured.
 
 ## Evaluation (ablation)
 

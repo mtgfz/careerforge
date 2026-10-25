@@ -1,0 +1,7 @@
+.git
+.venv
+frontend/node_modules
+frontend/dist
+outputs
+chroma_db
+__pycache__
