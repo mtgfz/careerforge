@@ -57,9 +57,11 @@ export default function ProfileForm({ busy, templates, maxFiles, onSubmit }: Pro
 
   const addFiles = (list: FileList | null) => {
     if (!list) return;
+    // copy now: the input is reset right after, which empties the live FileList
+    const picked = Array.from(list);
     setFiles((prev) => {
       const names = new Set(prev.map((f) => f.name + f.size));
-      const next = [...prev, ...Array.from(list).filter((f) => !names.has(f.name + f.size))];
+      const next = [...prev, ...picked.filter((f) => !names.has(f.name + f.size))];
       return next.slice(0, maxFiles);
     });
   };
