@@ -1,0 +1,11 @@
+Backend Engineer Intern (Java) - Example Payments (Rabat)
+
+You will help build the microservices behind our payment platform.
+
+Requirements:
+- Java and Spring Boot
+- REST API design and SQL (PostgreSQL)
+- Unit testing with JUnit
+- Docker, Kubernetes basics, CI/CD with GitHub Actions
+- Knowledge of payment systems or open banking is a plus
+- English; French is a plus

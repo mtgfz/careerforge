@@ -74,7 +74,8 @@ def render_latex(cv: GeneratedCV, candidate: Candidate) -> str:
     contact += [_href(u) for u in candidate.links]
     parts.append(" \\textbar{} ".join(contact) + "\n\\end{center}\n")
 
-    parts.append(_section("Profile", latex_escape(cv.summary)))
+    if cv.summary:
+        parts.append(_section("Profile", latex_escape(cv.summary)))
     if cv.skills:
         parts.append(_section("Skills", latex_escape(" \u00b7 ".join(cv.skills))))
     if cv.experiences:
@@ -94,7 +95,9 @@ def render_markdown(cv: GeneratedCV, candidate: Candidate) -> str:
     contact = " | ".join(
         x for x in [candidate.email, candidate.phone, candidate.location, *candidate.links] if x
     )
-    lines = [f"# {candidate.name}", f"**{cv.headline}**", "", contact, "", "## Profile", cv.summary]
+    lines = [f"# {candidate.name}", f"**{cv.headline}**", "", contact]
+    if cv.summary:
+        lines += ["", "## Profile", cv.summary]
     if cv.skills:
         lines += ["", "## Skills", " · ".join(cv.skills)]
     for title, entries in (("Experience", cv.experiences), ("Projects", cv.projects)):

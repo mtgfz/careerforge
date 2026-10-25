@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from ..llm import get_llm
+from ..llm import get_llm, invoke_structured
 from ..schemas import JobProfile
 
 PROMPT = ChatPromptTemplate.from_messages(
@@ -14,14 +14,15 @@ PROMPT = ChatPromptTemplate.from_messages(
             "seniority, the language the offer is written in (ISO code), the concrete "
             "requirements (each with a kind and an importance from 1 to 5), and 8-20 ATS "
             "keywords (tools, technologies, methods, domain terms) exactly as written in the "
-            "offer. Do not invent anything that is not in the offer.",
+            "offer. Do not invent anything that is not in the offer. Always answer by calling the "
+            "tool, even if the offer is very short or vague: fill only what the text states, use "
+            "an empty string or empty list for the rest, and never ask for more information.",
         ),
         ("human", "{job_text}"),
     ]
 )
 
 
-def analyze_job(job_text: str, llm=None) -> JobProfile:
+def analyze_job(job_text: str, llm=None, fallback_llm=None) -> JobProfile:
     llm = llm or get_llm(temperature=0)
-    chain = PROMPT | llm.with_structured_output(JobProfile)
-    return chain.invoke({"job_text": job_text})
+    return invoke_structured(PROMPT, JobProfile, {"job_text": job_text}, llm, fallback=fallback_llm)
