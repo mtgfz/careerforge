@@ -1,0 +1,7 @@
+job,mode,iterations,faithfulness,ats,quality,overall
+data_analyst_junior,no_critic,1,0.909,0.49,0.7,0.721
+data_analyst_junior,with_critic,2,1.0,0.526,0.7,0.768
+fullstack_intern,no_critic,1,0.857,0.739,0.8,0.805
+fullstack_intern,with_critic,1,1.0,0.699,0.8,0.85
+ml_engineer_intern,no_critic,1,1.0,0.72,0.8,0.856
+ml_engineer_intern,with_critic,2,1.0,0.752,0.7,0.836
