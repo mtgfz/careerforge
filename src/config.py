@@ -53,3 +53,10 @@ CHUNK_OVERLAP = 80
 K_PER_REQUIREMENT = 2
 MAX_REQUIREMENTS = 12
 MIN_RELEVANCE = 0.15
+
+# --- Retrieval quality knobs ----------------------------------------------------------------
+# Dense retrieval picks RERANK_POOL candidates; they are then re-ordered by (a) BM25 fused with the
+# dense ranking (reciprocal rank fusion) and/or (b) a cross-encoder (full attention over query+passage).
+HYBRID_SEARCH = os.getenv("HYBRID_SEARCH", "false").lower() in ("1", "true", "yes")
+RERANKER_MODEL = os.getenv("RERANKER_MODEL", "")  # e.g. cross-encoder/mmarco-mMiniLMv2-L12-H384-v1
+RERANK_POOL = int(os.getenv("RERANK_POOL", "12"))
