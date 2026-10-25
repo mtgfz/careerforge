@@ -27,6 +27,7 @@ def build_graph(
     critique: Callable[[State], dict],
     use_critic: bool = True,
     max_iters: int = 3,
+    plateau_delta: float = 0.0,
 ):
     g = StateGraph(State)
     g.add_node("analyze", analyze)
@@ -44,6 +45,12 @@ def build_graph(
     def after_critique(state: State) -> str:
         if state["critique"].passed or state.get("iteration", 0) >= max_iters:
             return END
+        hist = state.get("history", [])
+        if plateau_delta > 0 and len(hist) >= 2:
+            # Another rewrite is not worth an LLM round trip when the score stopped improving.
+            gain = hist[-1]["critique"].overall - hist[-2]["critique"].overall
+            if gain < plateau_delta:
+                return END
         return "write"
 
     g.add_conditional_edges("write", after_write, {"critique": "critique", END: END})

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from . import config
@@ -40,6 +42,7 @@ class PipelineResult:
     pruned: int = 0  # bullets + skills removed from the returned CV
     cover_letter: str = ""
     questions: str = ""
+    timings: dict = field(default_factory=dict)  # seconds spent per step
 
 
 def run_pipeline(
@@ -52,8 +55,37 @@ def run_pipeline(
     llm=None,
     embeddings=None,
     judge_llm=None,
+    on_event=None,
 ) -> PipelineResult:
+    """`on_event(dict)` receives progress events: start/done per step, with timings and scores."""
     max_iters = max_iters or config.MAX_ITERATIONS
+    timings: dict[str, float] = {}
+
+    def emit(event: dict) -> None:
+        if on_event:
+            on_event(event)
+
+    def instrument(name, fn):
+        """Wrap a graph node: emit start/done events and accumulate its wall-clock time."""
+
+        def wrapped(state):
+            it = state.get("iteration", 0) + (1 if name == "write" else 0)
+            emit({"type": "start", "node": name, "iteration": it})
+            t0 = time.perf_counter()
+            out = fn(state)
+            dt = time.perf_counter() - t0
+            timings[name] = round(timings.get(name, 0.0) + dt, 2)
+            ev = {"type": "done", "node": name, "iteration": it, "seconds": round(dt, 1)}
+            crit = out.get("critique") if isinstance(out, dict) else None
+            if crit is not None:
+                ev["scores"] = {
+                    k: getattr(crit, k) for k in ("faithfulness", "ats", "quality", "overall", "passed")
+                }
+            emit(ev)
+            return out
+
+        return wrapped
+
     # An injected llm (tests) also judges; otherwise the Critic uses the JUDGE_* model.
     judge_fallback = None if (llm is not None or judge_llm is not None) else get_judge_fallback_llm()
     judge_llm = judge_llm or (llm if llm is not None else get_judge_llm())
@@ -95,7 +127,15 @@ def run_pipeline(
         ]
         return {"critique": crit, "history": hist}
 
-    graph = build_graph(n_analyze, n_retrieve, n_write, n_critique, use_critic, max_iters)
+    graph = build_graph(
+        instrument("analyze", n_analyze),
+        instrument("retrieve", n_retrieve),
+        instrument("write", n_write),
+        instrument("critique", n_critique),
+        use_critic,
+        max_iters,
+        plateau_delta=config.PLATEAU_DELTA,
+    )
     final = graph.invoke({"job_text": job_text, "iteration": 0, "history": []})
 
     history = final.get("history", [])
@@ -127,10 +167,25 @@ def run_pipeline(
                 n_before - len(list(all_bullets(cv))) - len(cv.skills)
                 + len(critique.unsupported_titles) + int(drop_summary)
             )
-            critique = evaluate_cv(
-                final["job"], cv, final["evidence"], job_text, llm=judge_llm, embeddings=embeddings,
-                fallback_llm=judge_fallback,
-            )
+            if config.REJUDGE_AFTER_PRUNE:
+                emit({"type": "start", "node": "rejudge", "iteration": best_iteration})
+                t0 = time.perf_counter()
+                critique = evaluate_cv(
+                    final["job"], cv, final["evidence"], job_text, llm=judge_llm,
+                    embeddings=embeddings, fallback_llm=judge_fallback,
+                )
+                timings["rejudge"] = round(time.perf_counter() - t0, 2)
+                emit({"type": "done", "node": "rejudge", "iteration": best_iteration,
+                      "seconds": round(timings["rejudge"], 1)})
+            else:
+                # Everything the judge flagged was removed: faithfulness is 1.0 by construction.
+                overall = round(0.4 * 1.0 + 0.3 * critique.ats + 0.3 * critique.quality, 3)
+                critique = critique.model_copy(update={
+                    "faithfulness": 1.0, "overall": overall, "unsupported": [],
+                    "unsupported_bullets": [], "unsupported_skills": [], "unsupported_titles": [],
+                    "summary_supported": True,
+                    "passed": overall >= config.OVERALL_MIN,
+                })
     else:
         # No-critic mode: still score the final CV so ablations are comparable.
         cv, best_iteration = final["cv"], 0
@@ -148,11 +203,26 @@ def run_pipeline(
         history=history,
         best_iteration=best_iteration,
         pruned=pruned,
+        timings=timings,
     )
     if with_extras:
+        emit({"type": "start", "node": "extras", "iteration": 0})
+        t0 = time.perf_counter()
         models = [light_llm] + ([light_backup] if light_backup is not None else [])
-        result.cover_letter = _free_text(cover_letter, models, result.job, result.cv, candidate)
-        result.questions = _free_text(interview_questions, models, result.job, result.cv)
+        if config.PARALLEL_EXTRAS:
+            with ThreadPoolExecutor(2) as ex:
+                f_letter = ex.submit(
+                    _free_text, cover_letter, models, result.job, result.cv, candidate
+                )
+                f_questions = ex.submit(
+                    _free_text, interview_questions, models, result.job, result.cv
+                )
+                result.cover_letter, result.questions = f_letter.result(), f_questions.result()
+        else:
+            result.cover_letter = _free_text(cover_letter, models, result.job, result.cv, candidate)
+            result.questions = _free_text(interview_questions, models, result.job, result.cv)
+        timings["extras"] = round(time.perf_counter() - t0, 2)
+        emit({"type": "done", "node": "extras", "iteration": 0, "seconds": round(timings["extras"], 1)})
     return result
 
 

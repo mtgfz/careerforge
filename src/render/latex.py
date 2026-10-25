@@ -20,15 +20,21 @@ _ESCAPES = {
     "^": r"\textasciicircum{}",
 }
 
-PREAMBLE = r"""\documentclass[10pt,a4paper]{article}
+TEMPLATES = {
+    "classic": {"accent": "1F4E79", "size": "10pt", "margin": "1.6cm"},
+    "modern": {"accent": "0B6E70", "size": "10pt", "margin": "1.4cm"},
+    "compact": {"accent": "374151", "size": "9pt", "margin": "1.2cm"},
+}
+
+PREAMBLE = r"""\documentclass[@SIZE@,a4paper]{article}
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
-\usepackage[margin=1.6cm]{geometry}
+\usepackage[margin=@MARGIN@]{geometry}
 \usepackage{enumitem}
 \usepackage[hidelinks]{hyperref}
 \usepackage{xcolor}
 \usepackage{titlesec}
-\definecolor{accent}{HTML}{1F4E79}
+\definecolor{accent}{HTML}{@ACCENT@}
 \titleformat{\section}{\large\bfseries\color{accent}}{}{0em}{}[\titlerule]
 \titlespacing*{\section}{0pt}{10pt}{5pt}
 \setlist[itemize]{leftmargin=1.2em,itemsep=1pt,topsep=2pt}
@@ -66,8 +72,17 @@ def _section(title: str, body: str) -> str:
     return "\\section*{" + latex_escape(title) + "}\n" + body + "\n"
 
 
-def render_latex(cv: GeneratedCV, candidate: Candidate) -> str:
-    parts = [PREAMBLE]
+def _preamble(template: str) -> str:
+    t = TEMPLATES.get(template, TEMPLATES["classic"])
+    return (
+        PREAMBLE.replace("@SIZE@", t["size"])
+        .replace("@MARGIN@", t["margin"])
+        .replace("@ACCENT@", t["accent"])
+    )
+
+
+def render_latex(cv: GeneratedCV, candidate: Candidate, template: str = "classic") -> str:
+    parts = [_preamble(template)]
     parts.append("\\begin{center}\n{\\Huge\\bfseries " + latex_escape(candidate.name) + "}\\\\[3pt]")
     parts.append("{\\large " + latex_escape(cv.headline) + "}\\\\[3pt]")
     contact = [latex_escape(x) for x in (candidate.email, candidate.phone, candidate.location) if x]
