@@ -12,6 +12,8 @@ Usage:
     python -m eval.ablation --pairs data/private/pairs --variants single_pass full
     python -m eval.ablation --cv data/sample/sample_cv.md --jobs data/sample/jobs   # legacy
 
+Every run re-judges the CV after pruning (REJUDGE_AFTER_PRUNE is forced on), so faithfulness
+is measured and never fixed at 1.0 by construction.
 Every run is appended to <out>/results.jsonl as soon as it finishes, so an interrupted run
 (free-tier quota...) resumes where it stopped. Use --fresh to start over.
 Then eval.analysis writes results.md, results.csv and the charts.
@@ -39,6 +41,10 @@ VARIANTS: dict[str, dict] = {
 }
 DEFAULT_VARIANTS = ["single_pass", "critic_once", "full"]
 
+# Applied to every run whatever .env says: the CV returned after pruning must be judged again,
+# otherwise its faithfulness is 1.0 by construction and the ablation measures nothing.
+EVAL_CONFIG = {"REJUDGE_AFTER_PRUNE": True}
+
 
 @contextmanager
 def overridden(values: dict):
@@ -63,7 +69,7 @@ def run_one(pair: Pair, variant: str, kb, repeat: int = 0, llm=None, embeddings=
     row = {"pair": pair.id, "variant": variant, "repeat": repeat}
     t0 = time.perf_counter()
     try:
-        with overridden(spec.get("config", {})):
+        with overridden({**EVAL_CONFIG, **spec.get("config", {})}):
             res = run_pipeline(
                 kb,
                 pair.job_text,
@@ -97,6 +103,7 @@ def run_one(pair: Pair, variant: str, kb, repeat: int = 0, llm=None, embeddings=
         cv_coverage=gaps.cv_coverage,
         job_title=res.job.title,
         job_language=res.job.language,
+        plateau_delta=config.PLATEAU_DELTA,
         seconds=round(time.perf_counter() - t0, 1),
         history=[
             {"iteration": h["iteration"], **{m: getattr(h["critique"], m) for m in METRICS}}

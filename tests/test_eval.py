@@ -181,3 +181,23 @@ def test_run_proof(pairs_dir, tmp_path):
     trace = json.loads((d / "trace.json").read_text())
     assert len(trace["history"]) == 2 and trace["gap_report"]["items"]
     assert "| [01_ml](01_ml/cv.md) | ML Intern |" in (out / "index.md").read_text()
+
+
+def test_ablation_forces_the_rejudge_after_pruning(pairs_dir, monkeypatch):
+    """Even with REJUDGE_AFTER_PRUNE=false in .env (web app speed knob), the ablation re-judges."""
+    from src import config
+    from eval import ablation
+
+    monkeypatch.setattr(config, "REJUDGE_AFTER_PRUNE", False)
+    seen = []
+
+    def fake_pipeline(*a, **k):
+        seen.append(config.REJUDGE_AFTER_PRUNE)
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr("src.pipeline.run_pipeline", fake_pipeline)
+    root, _ = pairs_dir
+    pair = load_pairs(root)[0]
+    row = ablation.run_one(pair, "full", kb=None)
+    assert seen == [True] and "stop" in row["error"]
+    assert config.REJUDGE_AFTER_PRUNE is False  # restored afterwards

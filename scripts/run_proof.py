@@ -29,6 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from eval.ablation import EVAL_CONFIG, overridden  # noqa: E402
 from eval.pairs import Pair, build_kb, resolve_pairs  # noqa: E402
 
 DEFAULT_OUT = Path("outputs/proof")
@@ -48,7 +49,8 @@ def prove_pair(pair: Pair, out: Path, pdf: bool = True, llm=None, embeddings=Non
     candidate = Candidate(name=pair.candidate_name)
     t0 = time.perf_counter()
     kb = build_kb(pair, embeddings=embeddings)
-    res = run_pipeline(kb, pair.job_text, candidate, llm=llm, embeddings=embeddings)
+    with overridden(EVAL_CONFIG):  # scores in index.md must be measured, not assumed
+        res = run_pipeline(kb, pair.job_text, candidate, llm=llm, embeddings=embeddings)
     t_pipeline = time.perf_counter() - t0
     gaps = analyze_gaps(res.job, res.evidence, res.cv, kb=kb, llm=llm)
 
