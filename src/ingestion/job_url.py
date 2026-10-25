@@ -179,29 +179,62 @@ _SKIP = {"script", "style", "noscript", "svg", "nav", "header", "footer", "aside
 _BLOCK = {"p", "div", "section", "article", "main", "br", "li", "ul", "ol", "tr", "table",
           "h1", "h2", "h3", "h4", "h5", "h6", "dd", "dt", "blockquote", "pre"}
 _VOID = {"br", "img", "hr", "input", "meta", "link", "source", "wbr", "area", "col", "embed"}
+# A class/id token naming page furniture: "related-posts", "jeg_ad", "offres-emploi-similaire"...
+_NOISE_TOKEN = re.compile(
+    r"^(?:.*[-_])?(?:related|similar|similaire|sidebar|widgets?|footer|comments?|share|sharing|"
+    r"social|ads?|advert\w*|popup|modal|menu|breadcrumbs?|newsletter|cookies?|signup|subscribe|"
+    r"promo)(?:[-_].*)?$",
+    re.I,
+)
+
+
+def _is_noise(attrs) -> bool:
+    for name, value in attrs:
+        if name in ("class", "id") and value:
+            for token in value.split():
+                if not token.lower().startswith("no-") and _NOISE_TOKEN.match(token):
+                    return True
+    return False
 
 
 class _TextExtractor(HTMLParser):
+    """Collects the page text without page furniture, plus each <main>/<article> block on its
+    own and the position of the first <h1> (where the offer usually starts)."""
+
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.skip = 0
         self.parts: list[str] = []  # whole page
-        self.main_parts: list[str] = []  # inside <main>/<article> only
-        self.main_depth = 0
+        self.blocks: list[dict] = []  # one per <main>/<article>: {"parts": [...], "h1": bool}
+        self._open: list[dict] = []
+        self._skip: list[list] = []  # [tag, nesting] of the element being skipped
+        self.h1_at: int | None = None
         self.title = ""
         self._in_title = False
 
     def handle_starttag(self, tag, attrs):
         if tag == "title":
             self._in_title = True
+        if self._skip:
+            if tag == self._skip[-1][0] and tag not in _VOID:
+                self._skip[-1][1] += 1
+            return
         if tag in _VOID:
             if tag == "br":
                 self._emit("\n")
             return
-        if tag in _SKIP:
-            self.skip += 1
-        if tag in ("main", "article") and not self.skip:
-            self.main_depth += 1
+        # A <header> inside the content (WordPress "entry-header") holds the title: keep it.
+        page_chrome = tag in _SKIP and not (tag == "header" and self._open)
+        if page_chrome or _is_noise(attrs):
+            self._skip.append([tag, 1])
+            return
+        if tag in ("main", "article"):
+            block = {"parts": [], "h1": False}
+            self.blocks.append(block)
+            self._open.append(block)
+        if tag == "h1" and self.h1_at is None:
+            self.h1_at = len(self.parts)
+            for block in self._open:
+                block["h1"] = True
         if tag == "li":
             self._emit("\n- ")
         elif tag in _BLOCK:
@@ -210,31 +243,33 @@ class _TextExtractor(HTMLParser):
     def handle_endtag(self, tag):
         if tag == "title":
             self._in_title = False
+        if self._skip:
+            if tag == self._skip[-1][0]:
+                self._skip[-1][1] -= 1
+                if not self._skip[-1][1]:
+                    self._skip.pop()
+            return
         if tag in _VOID:
             return
-        if tag in _SKIP and self.skip:
-            self.skip -= 1
-        if tag in ("main", "article") and self.main_depth and not self.skip:
-            self.main_depth -= 1
         if tag in _BLOCK:
             self._emit("\n")
+        if tag in ("main", "article") and self._open:
+            self._open.pop()
 
     def handle_data(self, data):
         if self._in_title:
             self.title += data
-        if not self.skip:
+        if not self._skip:
             self._emit(data)
 
     def _emit(self, s):
-        if self.skip:
-            return
         self.parts.append(s)
-        if self.main_depth:
-            self.main_parts.append(s)
+        for block in self._open:
+            block["parts"].append(s)
 
 
 def _tidy(text: str) -> str:
-    lines = [re.sub(r"[ \t ]+", " ", ln).strip() for ln in text.splitlines()]
+    lines = [re.sub(r"[ \t\u00a0]+", " ", ln).strip() for ln in text.splitlines()]
     text = "\n".join(ln for ln in lines if ln != "-")  # drop empty list items
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
@@ -247,11 +282,17 @@ def html_to_text(fragment: str) -> str:
 
 
 def _from_html(page: str) -> ImportedJob:
+    """Pick the offer: the <main>/<article> holding the <h1>, else the page from its <h1> on,
+    else the longest <main>/<article>, else the whole page (furniture removed in every case)."""
     p = _TextExtractor()
     p.feed(page)
     p.close()
-    main = _tidy("".join(p.main_parts))
-    text = main if len(main) >= MIN_TEXT_CHARS else _tidy("".join(p.parts))
+    blocks = [(_tidy("".join(b["parts"])), b["h1"]) for b in p.blocks]
+    candidates = [t for t, has_h1 in blocks if has_h1]
+    if p.h1_at is not None:
+        candidates.append(_tidy("".join(p.parts[p.h1_at:])))
+    candidates.append(max((t for t, _ in blocks), key=len, default=""))
+    text = next((t for t in candidates if len(t) >= MIN_TEXT_CHARS), _tidy("".join(p.parts)))
     return ImportedJob(url="", text=text, title=_tidy(p.title), method="html")
 
 

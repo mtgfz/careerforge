@@ -126,3 +126,33 @@ def test_blocked_or_empty_pages_give_a_readable_error(net):
         import_job_from_url("https://www.linkedin.com/jobs/1")
     with pytest.raises(JobImportError, match="JavaScript"):
         import_job_from_url("https://spa.example.com/")
+
+
+def test_html_fallback_ignores_related_posts_and_keeps_an_entry_header():
+    """News-style job sites (WordPress themes): the offer is not in an <article>, but every
+    related post is, and the title sits in a <header> inside the content."""
+    related = "".join(
+        f'<article class="jeg_post"><h3>Other offer {i}</h3><p>{FILLER}</p></article>' for i in range(5)
+    )
+    page = f"""<html><body><header>Site logo</header>
+    <div class="jeg_main_content"><article class="post"><header class="entry-header">
+    <h1>PCA recrute 4 stagiaires PFE</h1></header>
+    <div class="entry-content no-share"><p>Stage Ingénieur Support, 6 mois. {FILLER}</p>
+    <div class="share-buttons">Partager sur Facebook</div></div></article>
+    <div class="jnews_related_post_container">{related}</div></div>
+    <div class="sidebar widget">{related}</div><div class="jeg_footer_content">Copyright</div>
+    </body></html>"""
+    text = parse_job_page(page).text
+    assert text.startswith("PCA recrute 4 stagiaires PFE")
+    assert "Stage Ingénieur Support" in text
+    for noise in ("Other offer", "Partager", "Site logo", "Copyright"):
+        assert noise not in text
+
+
+def test_html_fallback_starts_at_the_title_when_no_block_holds_it():
+    cards = "".join(f'<article class="joblist"><p>Comptable {i} {FILLER}</p></article>' for i in range(3))
+    page = f"""<html><body><div class="job-left-side"><h1>Stage PFE Full Stack</h1>
+    <div class="content-text"><p>React, Node.js. {FILLER}</p></div></div>
+    <div class="content-card offres-emploi-similaire">{cards}</div></body></html>"""
+    text = parse_job_page(page).text
+    assert text.startswith("Stage PFE Full Stack") and "Comptable" not in text
