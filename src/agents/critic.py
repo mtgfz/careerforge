@@ -11,7 +11,7 @@ from __future__ import annotations
 from langchain_core.prompts import ChatPromptTemplate
 
 from .. import config
-from ..llm import get_llm
+from ..llm import get_llm, invoke_structured
 from ..metrics import (
     all_bullets,
     cosine,
@@ -29,7 +29,12 @@ TASK 1, fact-check: for EVERY bullet, decide if the cited evidence clearly suppo
 in it (tools, numbers, outcomes, responsibilities). If any detail is missing from the \
 evidence, mark supported=false and say what is unsupported.
 
-TASK 2, quality: rate the CV from 1 to 10 for clarity, impact (action verb + result), \
+TASK 2, summary and titles: set summary_supported=false (and name the claim in \
+summary_issue) if ANY claim of the summary is not supported by the evidence. List in \
+unsupported_titles every entry title (copied exactly) whose role or project name does not \
+appear in, or clearly follow from, the evidence: invented job titles are not allowed.
+
+TASK 3, quality: rate the CV from 1 to 10 for clarity, impact (action verb + result), \
 relevance to the job, and concision. Give 2-4 concrete improvement suggestions."""
 
 JUDGE_HUMAN = """JOB: {title}
@@ -40,23 +45,40 @@ EVIDENCE
 CV BULLETS TO CHECK (with cited evidence IDs)
 {bullets}
 
+SUMMARY TO CHECK
+{summary}
+
+ENTRY TITLES TO CHECK
+{titles}
+
 FULL CV TEXT (for quality rating)
 {cv_text}"""
 
 
-def _judge(job: JobProfile, cv: GeneratedCV, evidence: EvidencePack, llm) -> JudgeOutput:
+def _entries(cv: GeneratedCV):
+    return [e for e in (*cv.experiences, *cv.projects) if e.title.strip()]
+
+
+def _judge(
+    job: JobProfile, cv: GeneratedCV, evidence: EvidencePack, llm, fallback_llm=None
+) -> JudgeOutput:
     bullets = "\n".join(
         f"- {b.text}  [cites: {', '.join(b.source_ids) or 'NONE'}]" for b in all_bullets(cv)
     )
     prompt = ChatPromptTemplate.from_messages([("system", JUDGE_SYSTEM), ("human", JUDGE_HUMAN)])
-    chain = prompt | llm.with_structured_output(JudgeOutput)
-    return chain.invoke(
+    return invoke_structured(
+        prompt,
+        JudgeOutput,
         {
             "title": job.title,
             "evidence": format_evidence(evidence),
             "bullets": bullets or "(no bullets)",
+            "summary": cv.summary or "(none)",
+            "titles": "\n".join(f"- {e.title}" for e in _entries(cv)) or "(none)",
             "cv_text": cv_to_text(cv),
-        }
+        },
+        llm,
+        fallback=fallback_llm,
     )
 
 
@@ -67,16 +89,19 @@ def evaluate_cv(
     job_text: str = "",
     llm=None,
     embeddings=None,
+    fallback_llm=None,
 ) -> Critique:
     llm = llm or get_llm(temperature=0)
     bullets = list(all_bullets(cv))
 
     # --- faithfulness (programmatic citation check AND LLM judge) ---
     cite_ok = valid_citation_flags(cv, set(evidence.chunks))
-    judge = _judge(job, cv, evidence, llm)
+    judge = _judge(job, cv, evidence, llm, fallback_llm)
     verdict_by_text = {v.bullet.strip(): v for v in judge.verdicts}
 
     unsupported: list[str] = []
+    bad_bullets: list[str] = []
+    bad_skills: list[str] = []
     ok_items = 0
     for b, cited in zip(bullets, cite_ok):
         v = verdict_by_text.get(b.text.strip())
@@ -86,6 +111,7 @@ def evaluate_cv(
         else:
             why = (v.reason if v and v.reason else "no valid evidence citation")
             unsupported.append(f"BULLET: {b.text}  -> {why}")
+            bad_bullets.append(b.text)
 
     skill_flags = skill_grounded_flags(cv.skills, evidence.text())
     for skill, grounded in zip(cv.skills, skill_flags):
@@ -93,8 +119,28 @@ def evaluate_cv(
             ok_items += 1
         else:
             unsupported.append(f"SKILL not in evidence: {skill}")
+            bad_skills.append(skill)
 
-    total_items = len(bullets) + len(cv.skills)
+    # Summary and entry titles are claims too (the summary only counts if there is one).
+    summary_ok = judge.summary_supported or not cv.summary.strip()
+    if cv.summary.strip():
+        if summary_ok:
+            ok_items += 1
+        else:
+            unsupported.append(
+                f"SUMMARY: {judge.summary_issue or 'contains claims not in the evidence'}"
+            )
+    flagged = {t.strip().lower() for t in judge.unsupported_titles}
+    bad_titles: list[str] = []
+    entries = _entries(cv)
+    for e in entries:
+        if e.title.strip().lower() in flagged:
+            unsupported.append(f"TITLE not in evidence (use a neutral title): {e.title}")
+            bad_titles.append(e.title)
+        else:
+            ok_items += 1
+
+    total_items = len(bullets) + len(cv.skills) + len(entries) + (1 if cv.summary.strip() else 0)
     faithfulness = ok_items / total_items if total_items else 0.0
 
     # --- ATS score ---
@@ -126,6 +172,10 @@ def evaluate_cv(
         quality=round(quality, 3),
         overall=round(overall, 3),
         unsupported=unsupported,
+        unsupported_bullets=bad_bullets,
+        unsupported_skills=bad_skills,
+        unsupported_titles=bad_titles,
+        summary_supported=summary_ok,
         missing_keywords=missing,
         feedback="\n\n".join(feedback_parts),
         passed=passed,

@@ -8,9 +8,15 @@ from pathlib import Path
 from . import config
 from .ingestion.loaders import RawDoc, load_file, load_github, load_text
 from .ingestion.store import KnowledgeBase
+from .llm import quota_error
 from .pipeline import PipelineResult, run_pipeline
 from .render.latex import compile_pdf, render_latex, render_markdown
 from .schemas import Candidate
+
+
+_HIDDEN = {  # internal fields, not for the UI tables
+    "feedback", "unsupported_bullets", "unsupported_skills", "unsupported_titles", "summary_supported",
+}
 
 
 def build_kb(
@@ -41,7 +47,13 @@ def generate_application(
 ) -> dict:
     """Runs the pipeline, writes outputs to disk, returns a JSON-friendly summary."""
     kb = build_kb(files, github_user, extra_text)
-    result: PipelineResult = run_pipeline(kb, job_text, candidate, use_critic=use_critic)
+    try:
+        result: PipelineResult = run_pipeline(kb, job_text, candidate, use_critic=use_critic)
+    except Exception as e:
+        quota = quota_error(e)  # also catches 429s from the unretried free-text calls
+        if quota:
+            raise quota from e
+        raise
 
     run_id = uuid.uuid4().hex[:10]
     out_dir = Path(out_root or config.OUTPUT_DIR) / run_id
@@ -58,9 +70,10 @@ def generate_application(
         "run_id": run_id,
         "job_title": result.job.title,
         "iterations": result.iterations,
-        "scores": result.critique.model_dump(exclude={"feedback"}),
+        "scores": result.critique.model_dump(exclude=_HIDDEN),
+        "pruned": result.pruned,
         "history": [
-            {"iteration": h["iteration"], **h["critique"].model_dump(exclude={"feedback"})}
+            {"iteration": h["iteration"], **h["critique"].model_dump(exclude=_HIDDEN)}
             for h in result.history
         ],
         "files": sorted(p.name for p in out_dir.iterdir()),
