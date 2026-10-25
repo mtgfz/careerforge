@@ -86,6 +86,7 @@ def run_pipeline(
 
         return wrapped
 
+    injected_llm = llm is not None
     # An injected llm (tests) also judges; otherwise the Critic uses the JUDGE_* model.
     judge_fallback = None if (llm is not None or judge_llm is not None) else get_judge_fallback_llm()
     judge_llm = judge_llm or (llm if llm is not None else get_judge_llm())
@@ -127,16 +128,52 @@ def run_pipeline(
         ]
         return {"critique": crit, "history": hist}
 
-    graph = build_graph(
-        instrument("analyze", n_analyze),
-        instrument("retrieve", n_retrieve),
-        instrument("write", n_write),
-        instrument("critique", n_critique),
-        use_critic,
-        max_iters,
-        plateau_delta=config.PLATEAU_DELTA,
-    )
-    final = graph.invoke({"job_text": job_text, "iteration": 0, "history": []})
+    def run_best_of_n() -> dict:
+        """Alternative to the sequential loop: write N candidates in parallel, score each, keep the best.
+
+        Same evidence for every candidate; diversity comes from the sampling temperature. Trades
+        extra parallel LLM calls for fewer sequential rounds (lower latency, no feedback loop).
+        """
+        state = {"job_text": job_text, "iteration": 0, "history": []}
+        state.update(instrument("analyze", n_analyze)(state))
+        state.update(instrument("retrieve", n_retrieve)(state))
+        n = max(1, config.BEST_OF_N)
+        temps = [0.2, 0.5, 0.8, 0.35, 0.65][:n] + [0.5] * max(0, n - 5)
+
+        def candidate(i: int):
+            model = llm if injected_llm else get_llm(temps[i])
+            cv = write_cv(state["job"], state["evidence"], feedback=None, previous=None, llm=model)
+            crit = evaluate_cv(
+                state["job"], cv, state["evidence"], job_text, llm=judge_llm,
+                embeddings=embeddings, fallback_llm=judge_fallback,
+            )
+            return {"iteration": i + 1, "critique": crit, "cv": cv}
+
+        emit({"type": "start", "node": "write", "iteration": 1})
+        t0 = time.perf_counter()
+        with ThreadPoolExecutor(n) as ex:
+            hist = list(ex.map(candidate, range(n)))
+        dt = time.perf_counter() - t0
+        timings["write"] = round(dt, 2)
+        best = max(hist, key=lambda h: (h["critique"].passed, h["critique"].faithfulness, h["critique"].overall))
+        emit({"type": "done", "node": "write", "iteration": 1, "seconds": round(dt, 1)})
+        emit({"type": "done", "node": "critique", "iteration": 1, "seconds": 0.0, "scores": {
+            k: getattr(best["critique"], k) for k in ("faithfulness", "ats", "quality", "overall", "passed")}})
+        return {**state, "cv": best["cv"], "critique": best["critique"], "iteration": n, "history": hist}
+
+    if use_critic and config.STRATEGY == "best_of_n":
+        final = run_best_of_n()
+    else:
+        graph = build_graph(
+            instrument("analyze", n_analyze),
+            instrument("retrieve", n_retrieve),
+            instrument("write", n_write),
+            instrument("critique", n_critique),
+            use_critic,
+            max_iters,
+            plateau_delta=config.PLATEAU_DELTA,
+        )
+        final = graph.invoke({"job_text": job_text, "iteration": 0, "history": []})
 
     history = final.get("history", [])
     pruned = 0
