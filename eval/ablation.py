@@ -45,6 +45,9 @@ DEFAULT_VARIANTS = ["single_pass", "critic_once", "full"]
 # otherwise its faithfulness is 1.0 by construction and the ablation measures nothing.
 EVAL_CONFIG = {"REJUDGE_AFTER_PRUNE": True}
 
+MAX_QUOTA_WAITS = 48  # with --wait-quota: at most ~16 h of waiting in one session
+_sleep = time.sleep  # replaced in tests
+
 
 @contextmanager
 def overridden(values: dict):
@@ -86,6 +89,7 @@ def run_one(pair: Pair, variant: str, kb, repeat: int = 0, llm=None, embeddings=
         row.update(error=f"{type(e).__name__}: {e}"[:500], seconds=round(time.perf_counter() - t0, 1))
         if isinstance(e, QuotaExceeded) and e.daily:
             row["daily_quota"] = True
+            row["quota_wait"] = e.wait
         traceback.print_exc()
         return row
 
@@ -137,7 +141,11 @@ def run_ablation(
     fresh: bool = False,
     llm=None,
     embeddings=None,
+    wait_quota: bool = False,
+    max_wait: float = 20 * 60,
 ) -> Path:
+    """wait_quota: when the daily quota is used up, sleep (Groq's window is rolling, tokens come
+    back within minutes) and retry the same run instead of stopping, at most MAX_QUOTA_WAITS times."""
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     path = out / "results.jsonl"
@@ -153,17 +161,30 @@ def run_ablation(
     print(f"[ablation] {len(pairs)} pairs x {len(variants)} variants x {repeats} repeats: "
           f"{len(todo)} runs to do, {len(done)} already done")
     kbs: dict[str, object] = {}
-    for n, (pair, variant, rep) in enumerate(todo, 1):
+    waits, n = 0, 0
+    queue = list(todo)
+    while queue:
+        pair, variant, rep = queue[0]
         if pair.id not in kbs:
             kbs[pair.id] = build_kb(pair, embeddings=embeddings)
         row = run_one(pair, variant, kbs[pair.id], rep, llm=llm, embeddings=embeddings)
+        if row.get("daily_quota") and wait_quota and waits < MAX_QUOTA_WAITS:
+            waits += 1
+            delay = min(max(row.get("quota_wait") or 0, 60), max_wait) + 5
+            print(f"[ablation] daily quota used up: waiting {delay / 60:.0f} min, then retrying "
+                  f"{pair.id} / {variant} / r{rep} (wait {waits}/{MAX_QUOTA_WAITS})", flush=True)
+            _sleep(delay)
+            continue
+        queue.pop(0)
+        n += 1
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
         brief = row.get("error") or "  ".join(f"{m}={row[m]:.2f}" for m in METRICS)
-        print(f"[{n}/{len(todo)}] {pair.id} / {variant} / r{rep}: {brief}")
+        print(f"[{n}/{len(todo)}] {pair.id} / {variant} / r{rep}: {brief}", flush=True)
         if row.get("daily_quota"):
             print(f"[ablation] daily quota used up: stopping after {n - 1} new runs. "
-                  "Run the same command again later (without --fresh) to resume.")
+                  "Run the same command again later (without --fresh) to resume, "
+                  "or use --wait-quota.")
             break
     return path
 
@@ -178,6 +199,8 @@ def main(argv=None):
     ap.add_argument("--repeats", type=int, default=1, help="runs per pair and variant")
     ap.add_argument("--out", default="eval")
     ap.add_argument("--fresh", action="store_true", help="ignore previous results")
+    ap.add_argument("--wait-quota", action="store_true",
+                    help="when the daily quota is used up, wait and continue instead of stopping")
     args = ap.parse_args(argv)
 
     if args.cv:
@@ -187,7 +210,8 @@ def main(argv=None):
     else:
         pairs = resolve_pairs(args.pairs, args.sample)
 
-    path = run_ablation(pairs, args.variants, args.repeats, args.out, args.fresh)
+    path = run_ablation(pairs, args.variants, args.repeats, args.out, args.fresh,
+                        wait_quota=args.wait_quota)
 
     from .analysis import write_report
 

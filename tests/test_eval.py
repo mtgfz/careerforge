@@ -221,3 +221,28 @@ def test_ablation_stops_at_the_daily_quota_and_runs_repeat_major(pairs_dir, tmp_
     run_ablation(pairs, ["single_pass", "full"], repeats=2, out=tmp_path)
     # repeat 0 of every pair comes before any repeat 1, and the loop stops at the daily quota
     assert calls == [("01_ml", "single_pass", 0), ("01_ml", "full", 0), ("02_web", "single_pass", 0)]
+
+
+def test_wait_quota_sleeps_and_retries_the_same_run(pairs_dir, tmp_path, monkeypatch):
+    from eval import ablation
+
+    root, _ = pairs_dir
+    pairs = load_pairs(root)[:1]
+    calls, slept = [], []
+
+    def fake_run_one(pair, variant, kb, rep, **kw):
+        calls.append(variant)
+        if len(calls) == 2:  # the 2nd call hits the daily quota once
+            return {"pair": pair.id, "variant": variant, "repeat": rep, "error": "QuotaExceeded",
+                    "daily_quota": True, "quota_wait": 30 * 60}
+        return {"pair": pair.id, "variant": variant, "repeat": rep,
+                **{m: 0.5 for m in ("faithfulness", "ats", "quality", "overall")}}
+
+    monkeypatch.setattr("eval.ablation.run_one", fake_run_one)
+    monkeypatch.setattr("eval.ablation.build_kb", lambda *a, **k: None)
+    monkeypatch.setattr(ablation, "_sleep", slept.append)
+    path = run_ablation(pairs, ["single_pass", "full"], out=tmp_path, wait_quota=True)
+    assert calls == ["single_pass", "full", "full"]  # the quota-hit run is retried, not skipped
+    assert slept == [20 * 60 + 5]  # capped at max_wait
+    rows = [json.loads(ln) for ln in path.read_text().splitlines()]
+    assert len(rows) == 2 and not any(r.get("error") for r in rows)  # the failed try is not saved
